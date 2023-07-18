@@ -278,7 +278,59 @@ libssh2_userauth_authenticated(LIBSSH2_SESSION * session)
     return (session->state & LIBSSH2_STATE_AUTHENTICATED) ? 1 : 0;
 }
 
+/*
+ * split_userauth_failure_response
+ *
+ * Splits a userauth failure response message into its constituent parts.
+ * A userauth failure message looks like this:
+ *    byte         SSH_MSG_USERAUTH_FAILURE
+ *    name-list    authentications that can continue
+ *    boolean      partial success
+ *
+ * This function expects the entire message to be passed in,
+ * including the SSH_MSG_USERAUTH_FAILURE byte.
+ */
+static int
+split_userauth_failure_response(unsigned char* resp_data,
+                                size_t resp_data_len,
+                                unsigned char** next_methods,
+                                size_t* next_methods_len,
+                                unsigned char* partial_success)
+{
+    int rc;
+    struct string_buf buf = {resp_data, resp_data, resp_data_len};
 
+    /* Extract the message type, even though we expect only failure
+     * messages to be passed into this function. */
+    unsigned char msg_type;
+    rc = _libssh2_get_byte(&buf, &msg_type);
+    if(rc) {
+        return rc;
+    }
+
+    if(msg_type == SSH_MSG_USERAUTH_FAILURE) {
+        if(next_methods)
+        {
+            rc = _libssh2_get_string(&buf, next_methods, next_methods_len);
+            if(rc) {
+                return rc;
+            }
+        }
+
+        if(partial_success)
+        {
+            rc = _libssh2_get_boolean(&buf, partial_success);
+            if(rc) {
+                return rc;
+            }
+        }
+
+        return 0;
+    }
+    else {
+        return -1;
+    }
+}
 
 /* userauth_password
  * Plain ol' login
