@@ -445,15 +445,34 @@ password_response:
             }
             else if(session->userauth_pswd_data[0] ==
                     SSH_MSG_USERAUTH_FAILURE) {
-                _libssh2_debug((session, LIBSSH2_TRACE_AUTH,
-                               "Password authentication failed"));
+                unsigned char partial_success;
+                rc = split_userauth_failure_response(
+                    session->userauth_pswd_data,
+                    session->userauth_pswd_data_len,
+                    NULL, NULL, &partial_success);
+
                 LIBSSH2_FREE(session, session->userauth_pswd_data);
                 session->userauth_pswd_data = NULL;
                 session->userauth_pswd_state = libssh2_NB_state_idle;
-                return _libssh2_error(session,
-                                      LIBSSH2_ERROR_AUTHENTICATION_FAILED,
-                                      "Authentication failed "
-                                      "(username/password)");
+
+                if(rc) {
+                    return _libssh2_error(session, LIBSSH2_ERROR_PROTO,
+                                          "Invalid userauth failure response "
+                                          "message");
+                }
+                else if(partial_success) {
+                    return _libssh2_error(session,
+                                          LIBSSH2_ERROR_AUTH_PARTIAL_SUCCESS,
+                                          "Authentication succeeded "
+                                          "(username/password), but further "
+                                          "authentication is required");
+                }
+                else {
+                    return _libssh2_error(session,
+                                          LIBSSH2_ERROR_AUTHENTICATION_FAILED,
+                                          "Authentication failed "
+                                          "(username/password)");
+                }
             }
 
             session->userauth_pswd_newpw = NULL;
@@ -1266,6 +1285,35 @@ userauth_hostbased_fromfile(LIBSSH2_SESSION *session,
             session->state |= LIBSSH2_STATE_AUTHENTICATED;
             return 0;
         }
+        else if(session->userauth_host_data[0] == SSH_MSG_USERAUTH_FAILURE) {
+            unsigned char partial_success;
+            rc = split_userauth_failure_response(
+                session->userauth_pswd_data,
+                session->userauth_pswd_data_len,
+                NULL, NULL, &partial_success);
+
+            LIBSSH2_FREE(session, session->userauth_host_data);
+            session->userauth_host_data = NULL;
+
+            if(rc) {
+                return _libssh2_error(session, LIBSSH2_ERROR_PROTO,
+                                      "Invalid userauth failure response "
+                                      "message");
+            }
+            else if(partial_success) {
+                return _libssh2_error(session,
+                                      LIBSSH2_ERROR_AUTH_PARTIAL_SUCCESS,
+                                      "Authentication succeeded "
+                                      "(hostbased), but further "
+                                      "authentication is required");
+            }
+            else {
+                return _libssh2_error(session,
+                                      LIBSSH2_ERROR_AUTHENTICATION_FAILED,
+                                      "Authentication failed "
+                                      "(hostbased)");
+            }
+        }
     }
 
     /* This public key is not allowed for this user on this server */
@@ -1677,7 +1725,12 @@ retry_auth:
         }
 
         if(session->userauth_pblc_data[0] == SSH_MSG_USERAUTH_FAILURE) {
-            /* This public key is not allowed for this user on this server */
+            unsigned char partial_success;
+            rc = split_userauth_failure_response(
+                session->userauth_pswd_data,
+                session->userauth_pswd_data_len,
+                NULL, NULL, &partial_success);
+
             LIBSSH2_FREE(session, session->userauth_pblc_data);
             session->userauth_pblc_data = NULL;
             LIBSSH2_FREE(session, session->userauth_pblc_packet);
@@ -1685,8 +1738,25 @@ retry_auth:
             LIBSSH2_FREE(session, session->userauth_pblc_method);
             session->userauth_pblc_method = NULL;
             session->userauth_pblc_state = libssh2_NB_state_idle;
-            return _libssh2_error(session, LIBSSH2_ERROR_AUTHENTICATION_FAILED,
-                                  "Username/PublicKey combination invalid");
+
+            if(rc) {
+                return _libssh2_error(session, LIBSSH2_ERROR_PROTO,
+                                      "Invalid userauth failure response "
+                                      "message");
+            }
+            else if(partial_success) {
+                return _libssh2_error(session,
+                                      LIBSSH2_ERROR_AUTH_PARTIAL_SUCCESS,
+                                      "Authentication succeeded "
+                                      "(publickey), but further "
+                                      "authentication is required");
+            }
+            else {
+                return _libssh2_error(session,
+                                      LIBSSH2_ERROR_AUTHENTICATION_FAILED,
+                                      "Authentication failed "
+                                      "(publickey)");
+            }
         }
 
         /* Semi-Success! */
@@ -1861,14 +1931,45 @@ retry_auth:
         session->userauth_pblc_state = libssh2_NB_state_idle;
         return 0;
     }
+    else if(session->userauth_pblc_data[0] == SSH_MSG_USERAUTH_FAILURE) {
+        unsigned char partial_success;
+        rc = split_userauth_failure_response(
+            session->userauth_pswd_data,
+            session->userauth_pswd_data_len,
+            NULL, NULL, &partial_success);
 
-    /* This public key is not allowed for this user on this server */
-    LIBSSH2_FREE(session, session->userauth_pblc_data);
-    session->userauth_pblc_data = NULL;
-    session->userauth_pblc_state = libssh2_NB_state_idle;
-    return _libssh2_error(session, LIBSSH2_ERROR_PUBLICKEY_UNVERIFIED,
-                          "Invalid signature for supplied public key, or bad "
-                          "username/public key combination");
+        LIBSSH2_FREE( session, session->userauth_pblc_data );
+        session->userauth_pblc_data = NULL;
+        session->userauth_pblc_state = libssh2_NB_state_idle;
+
+        if(rc) {
+            return _libssh2_error(session, LIBSSH2_ERROR_PROTO,
+                                  "Invalid userauth failure response "
+                                  "message");
+        }
+        else if(partial_success) {
+            return _libssh2_error(session,
+                                  LIBSSH2_ERROR_AUTH_PARTIAL_SUCCESS,
+                                  "Authentication succeeded "
+                                  "(publickey), but further "
+                                  "authentication is required");
+        }
+        else {
+            return _libssh2_error(session,
+                                  LIBSSH2_ERROR_PUBLICKEY_UNVERIFIED,
+                                  "Authentication failed "
+                                  "(publickey)");
+        }
+    }
+    else {
+        /* Message is neither success nor failure... */
+        LIBSSH2_FREE(session, session->userauth_pblc_data);
+        session->userauth_pblc_data = NULL;
+        session->userauth_pblc_state = libssh2_NB_state_idle;
+        return _libssh2_error(session, LIBSSH2_ERROR_PUBLICKEY_UNVERIFIED,
+                              "Invalid signature for supplied public key, or bad "
+                              "username/public key combination");
+    }
 }
 
 /*
@@ -2192,15 +2293,34 @@ userauth_keyboard_interactive(LIBSSH2_SESSION * session,
             }
 
             if(session->userauth_kybd_data[0] == SSH_MSG_USERAUTH_FAILURE) {
-                _libssh2_debug((session, LIBSSH2_TRACE_AUTH,
-                               "Keyboard-interactive authentication failed"));
+                unsigned char partial_success;
+                rc = split_userauth_failure_response(
+                    session->userauth_pswd_data,
+                    session->userauth_pswd_data_len,
+                    NULL, NULL, &partial_success);
+
                 LIBSSH2_FREE(session, session->userauth_kybd_data);
                 session->userauth_kybd_data = NULL;
                 session->userauth_kybd_state = libssh2_NB_state_idle;
-                return _libssh2_error(session,
-                                      LIBSSH2_ERROR_AUTHENTICATION_FAILED,
-                                      "Authentication failed "
-                                      "(keyboard-interactive)");
+
+                if(rc) {
+                    return _libssh2_error(session, LIBSSH2_ERROR_PROTO,
+                                          "Invalid userauth failure response "
+                                          "message");
+                }
+                else if(partial_success) {
+                    return _libssh2_error(session,
+                                          LIBSSH2_ERROR_AUTH_PARTIAL_SUCCESS,
+                                          "Authentication succeeded "
+                                          "(keyboard-interactive), but further"
+                                          " authentication is required");
+                }
+                else {
+                    return _libssh2_error(session,
+                                          LIBSSH2_ERROR_AUTHENTICATION_FAILED,
+                                          "Authentication failed "
+                                          "(keyboard-interactive)");
+                }
             }
 
             /* server requested PAM-like conversation */

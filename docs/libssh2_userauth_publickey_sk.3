@@ -138,6 +138,9 @@ Some of the errors this function may return include:
 \fILIBSSH2_ERROR_SOCKET_SEND\fP - Unable to send data on socket.
 
 \fILIBSSH2_ERROR_AUTHENTICATION_FAILED\fP - failed, invalid username/key.
+
+\fILIBSSH2_ERROR_AUTH_PARTIAL_SUCCESS\fP - Authentication was successful, but
+further authentication with another method is still required.
 .SH AVAILABILITY
 Added in libssh2 1.10.0
 .SH SEE ALSO

@@ -57,5 +57,8 @@ number, it is not really a failure per se.
 
 \fILIBSSH2_ERROR_AUTHENTICATION_FAILED\fP - failed, invalid username/password
 or public/private key.
+
+\fILIBSSH2_ERROR_AUTH_PARTIAL_SUCCESS\fP - Authentication was successful, but
+further authentication with another method is still required.
 .SH SEE ALSO
 .BR libssh2_session_init_ex(3)
